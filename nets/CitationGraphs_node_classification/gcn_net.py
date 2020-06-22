@@ -11,6 +11,7 @@ import numpy as np
     http://arxiv.org/abs/1609.02907
 """
 from layers.gcn_layer import GCNLayer
+from layers.mygcn_layer import MyGCNLayer
 from dgl.nn.pytorch import GraphConv
 
 class GCNNet(nn.Module):
@@ -32,27 +33,29 @@ class GCNNet(nn.Module):
         self.device = net_params['device']
         self.dgl_builtin = net_params['builtin']
 
+        Layer = MyGCNLayer if net_params['my_layer'] else GCNLayer
+
         self.layers = nn.ModuleList()
         # input
-        self.layers.append(GCNLayer(in_dim, hidden_dim, F.relu, dropout,
+        self.layers.append(Layer(in_dim, hidden_dim, F.relu, dropout,
             self.graph_norm, self.batch_norm, self.residual,
             dgl_builtin=self.dgl_builtin))
-
+        
         # hidden
-        self.layers.extend(nn.ModuleList([GCNLayer(hidden_dim, hidden_dim,
+        self.layers.extend(nn.ModuleList([Layer(hidden_dim, hidden_dim,
             F.relu, dropout, self.graph_norm, self.batch_norm, self.residual,
             dgl_builtin=self.dgl_builtin)
             for _ in range(n_layers-1)]))
 
         # output
-        self.layers.append(GCNLayer(hidden_dim, n_classes, None, 0,
+        self.layers.append(Layer(hidden_dim, n_classes, None, 0,
             self.graph_norm, self.batch_norm, self.residual,
             dgl_builtin=self.dgl_builtin))
 
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, g, h, e, snorm_n, snorm_e):
-      
+        
         # GCN
         for i, conv in enumerate(self.layers):
             h = conv(g, h, snorm_n)

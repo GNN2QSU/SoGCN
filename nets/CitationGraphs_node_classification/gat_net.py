@@ -11,6 +11,7 @@ from dgl.nn.pytorch import GATConv
     https://arxiv.org/abs/1710.10903
 """
 from layers.gat_layer import GATLayer
+from layers.mygat_layer import MyGATLayer
 
 class GATNet(nn.Module):
 
@@ -40,20 +41,23 @@ class GATNet(nn.Module):
         residual = False
         self.layers = nn.ModuleList()
         self.activation = F.elu
+
+        Layer = MyGATLayer if net_params['my_layer'] else GATLayer
+
         # input projection (no residual)
-        self.layers.append(GATLayer(
+        self.layers.append(Layer(
             in_dim, hidden_dim, num_heads,
             dropout, self.graph_norm, self.batch_norm, self.residual,
             activation=self.activation, dgl_builtin=self.dgl_builtin))
         # hidden layers
         for l in range(1, n_layers):
             # due to multi-head, the in_dim = hidden_dim * num_heads
-            self.layers.append(GATLayer(
+            self.layers.append(Layer(
                 hidden_dim * num_heads, hidden_dim, num_heads,
                 dropout, self.graph_norm, self.batch_norm, self.residual,
                 activation=self.activation, dgl_builtin=self.dgl_builtin))
         # output projection
-        self.layers.append(GATLayer(
+        self.layers.append(Layer(
                 hidden_dim * num_heads, n_classes, 1,
                 dropout, self.graph_norm, self.batch_norm, self.residual,
                 activation=None, dgl_builtin=self.dgl_builtin))

@@ -6,6 +6,8 @@ from sklearn.metrics import confusion_matrix
 from sklearn.metrics import f1_score
 import numpy as np
 
+import dgl.function as fn
+
 
 def MAE(scores, targets):
     MAE = F.l1_loss(scores, targets)
@@ -65,3 +67,43 @@ def accuracy_VOC(scores, targets):
     targets = targets.cpu().detach().numpy()
     acc = f1_score(scores, targets, average='weighted')
     return acc
+
+
+
+class Smoothness:
+    msg = fn.copy_src(src='h', out='m')
+    
+    def reduce(nodes):
+        h = nodes.data['h'].detach()
+        m = nodes.mailbox['m'].detach()
+        L = nodes.mailbox['m'].shape[0]
+        dist = torch.zeros(L)
+
+        for i in range(L):
+            n_h = F.normalize(h[i, :], p=2, dim=0)
+            n_m = F.normalize(m[i, :, :], p=2, dim=1)
+
+            D = 1 - torch.matmul(n_m, n_h)
+            N = (torch.abs(D - 0) > 1e-10000).float().sum(dim=0)
+            if N == 0:
+                dist[i] = 0
+            else:
+                dist[i] = torch.sum(D, dim=0) / N
+        
+        return {'d': dist}
+
+    
+    @classmethod
+    def MAD(self, g, h):
+        g = g.local_var()
+        g.ndata['h'] = h
+        g.update_all(self.msg, self.reduce)
+
+        d = g.ndata['d']
+        N = (torch.abs(d - 0) > 1e-10000).float().sum(dim=0)
+        if N == 0:
+            return 0.0
+        
+        return torch.sum(d, dim=0) / N
+
+

@@ -11,6 +11,7 @@ import dgl
 """
 from layers.gcn_layer import GCNLayer
 from layers.mlp_readout_layer import MLPReadout
+from layers.mygcn_layer import MyGCNLayer
 
 class GCNNet(nn.Module):
     def __init__(self, net_params):
@@ -29,10 +30,12 @@ class GCNNet(nn.Module):
         
         self.embedding_h = nn.Linear(in_dim, hidden_dim)
         self.in_feat_dropout = nn.Dropout(in_feat_dropout)
+
+        Layer = MyGCNLayer if net_params['my_layer'] else GCNLayer
         
-        self.layers = nn.ModuleList([GCNLayer(hidden_dim, hidden_dim, F.relu, dropout,
+        self.layers = nn.ModuleList([Layer(hidden_dim, hidden_dim, F.relu, dropout,
                                               self.graph_norm, self.batch_norm, self.residual) for _ in range(n_layers-1)])
-        self.layers.append(GCNLayer(hidden_dim, out_dim, F.relu, dropout, self.graph_norm, self.batch_norm, self.residual))
+        self.layers.append(Layer(hidden_dim, out_dim, F.relu, dropout, self.graph_norm, self.batch_norm, self.residual))
         self.MLP_layer = MLPReadout(out_dim, n_classes)        
 
     def forward(self, g, h, e, snorm_n, snorm_e):

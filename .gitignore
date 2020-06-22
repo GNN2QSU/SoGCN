@@ -4,6 +4,10 @@
 **/__pycache__
 out/
 
+# Envs
+env/
+.vscode/
+
 gmail.py
 
 #SBM datasets

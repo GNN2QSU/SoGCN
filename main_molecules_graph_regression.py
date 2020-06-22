@@ -109,9 +109,10 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     # Write the network and optimization hyper-parameters in folder config/
     with open(write_config_file + '.txt', 'w') as f:
         f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n\nTotal Parameters: {}\n\n"""                .format(DATASET_NAME, MODEL_NAME, params, net_params, net_params['total_param']))
-        
+
     log_dir = os.path.join(root_log_dir, "RUN_" + str(0))
     writer = SummaryWriter(log_dir=log_dir)
+    print("Log Dir: %s" % log_dir)
 
     # setting seeds
     random.seed(params['seed'])
@@ -123,6 +124,8 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     print("Training Graphs: ", len(trainset))
     print("Validation Graphs: ", len(valset))
     print("Test Graphs: ", len(testset))
+    print("Number of Layers: %s" % net_params['L'])
+    print("Enable My Layer: %s" % net_params['my_layer'])
 
     model = gnn_model(MODEL_NAME, net_params)
     model = model.to(device)
@@ -133,8 +136,8 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
                                                      patience=params['lr_schedule_patience'],
                                                      verbose=True)
     
-    epoch_train_losses, epoch_val_losses = [], []
-    epoch_train_MAEs, epoch_val_MAEs = [], [] 
+    epoch_train_losses, epoch_val_losses, epoch_test_losses = [], [], []
+    epoch_train_MAEs, epoch_val_MAEs, epoch_test_MAEs = [], [], [] 
     
     # batching exception for Diffpool
     drop_last = True if MODEL_NAME == 'DiffPool' else False
@@ -142,7 +145,9 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     train_loader = DataLoader(trainset, batch_size=params['batch_size'], shuffle=True, drop_last=drop_last, collate_fn=dataset.collate)
     val_loader = DataLoader(valset, batch_size=params['batch_size'], shuffle=False, drop_last=drop_last, collate_fn=dataset.collate)
     test_loader = DataLoader(testset, batch_size=params['batch_size'], shuffle=False, drop_last=drop_last, collate_fn=dataset.collate)
-        
+    
+
+    start_time_str = time.strftime('%Hh%Mm%Ss on %b %d %Y')
     
     # At any point you can hit Ctrl + C to break out of training early.
     try:
@@ -155,16 +160,21 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
 
                 epoch_train_loss, epoch_train_mae, optimizer = train_epoch(model, optimizer, device, train_loader, epoch)
                 epoch_val_loss, epoch_val_mae = evaluate_network(model, device, val_loader, epoch)
+                epoch_test_loss, epoch_test_mae = evaluate_network(model, device, test_loader, epoch)
 
                 epoch_train_losses.append(epoch_train_loss)
                 epoch_val_losses.append(epoch_val_loss)
+                epoch_test_losses.append(epoch_test_loss)
                 epoch_train_MAEs.append(epoch_train_mae)
                 epoch_val_MAEs.append(epoch_val_mae)
+                epoch_test_MAEs.append(epoch_test_mae)
 
                 writer.add_scalar('train/_loss', epoch_train_loss, epoch)
                 writer.add_scalar('val/_loss', epoch_val_loss, epoch)
+                writer.add_scalar('test/_loss', epoch_test_loss, epoch)
                 writer.add_scalar('train/_mae', epoch_train_mae, epoch)
                 writer.add_scalar('val/_mae', epoch_val_mae, epoch)
+                writer.add_scalar('test/_mae', epoch_test_mae, epoch)
                 writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
                 _, epoch_test_mae = evaluate_network(model, device, test_loader, epoch)        
@@ -205,6 +215,10 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
         print('-' * 89)
         print('Exiting from training early because of KeyboardInterrupt')
     
+    writer.close()
+
+    end_time_str = time.strftime('%Hh%Mm%Ss on %b %d %Y')
+    
     _, test_mae = evaluate_network(model, device, test_loader, epoch)
     _, train_mae = evaluate_network(model, device, train_loader, epoch)
     print("Test MAE: {:.4f}".format(test_mae))
@@ -212,17 +226,21 @@ def train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs):
     print("TOTAL TIME TAKEN: {:.4f}s".format(time.time()-t0))
     print("AVG TIME PER EPOCH: {:.4f}s".format(np.mean(per_epoch_time)))
 
-    writer.close()
-
     """
         Write the results in out_dir/results folder
     """
+    result_txt = """
+Log Dir: {}\nStart Time: {}\nEnd Time: {}\n\n
+Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
+FINAL RESULTS\nTEST MAE: {:.4f}\nTRAIN MAE: {:.4f}\n\n
+Total Time Taken: {:.4f} hrs\nAverage Time Per Epoch: {:.4f} s\n\n\n"""\
+        .format(log_dir, start_time_str, end_time_str,
+                DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
+                np.mean(np.array(test_mae.cpu())), np.array(train_mae.cpu()), (time.time()-t0)/3600, np.mean(per_epoch_time))
+    
     with open(write_file_name + '.txt', 'w') as f:
-        f.write("""Dataset: {},\nModel: {}\n\nparams={}\n\nnet_params={}\n\n{}\n\nTotal Parameters: {}\n\n
-    FINAL RESULTS\nTEST MAE: {:.4f}\nTRAIN MAE: {:.4f}\n\n
-    Total Time Taken: {:.4f} hrs\nAverage Time Per Epoch: {:.4f} s\n\n\n"""\
-          .format(DATASET_NAME, MODEL_NAME, params, net_params, model, net_params['total_param'],
-                  np.mean(np.array(test_mae.cpu())), np.array(train_mae.cpu()), (time.time()-t0)/3600, np.mean(per_epoch_time)))
+        print("Writing results to %s" % write_file_name + '.txt')
+        f.write(result_txt)
         
 
         
@@ -287,6 +305,7 @@ def main():
     parser.add_argument('--cat', help="Please give a value for cat")
     parser.add_argument('--self_loop', help="Please give a value for self_loop")
     parser.add_argument('--max_time', help="Please give a value for max_time")
+    parser.add_argument('--my_layer', help="Please give a value for my_layer")
     args = parser.parse_args()
     with open(args.config) as f:
         config = json.load(f)
@@ -337,6 +356,7 @@ def main():
     net_params['device'] = device
     net_params['gpu_id'] = config['gpu']['id']
     net_params['batch_size'] = params['batch_size']
+    net_params['my_layer'] = False
     if args.L is not None:
         net_params['L'] = int(args.L)
     if args.hidden_dim is not None:
@@ -381,6 +401,8 @@ def main():
         net_params['cat'] = True if args.cat=='True' else False
     if args.self_loop is not None:
         net_params['self_loop'] = True if args.self_loop=='True' else False
+    if args.my_layer is not None:
+        net_params['my_layer'] = True if args.my_layer == 'True' else False
         
     
     # ZINC
@@ -395,17 +417,25 @@ def main():
         max_num_node = max(num_nodes)
         net_params['assign_dim'] = int(max_num_node * net_params['pool_ratio']) * net_params['batch_size']
     
-    root_log_dir = out_dir + 'logs/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    root_ckpt_dir = out_dir + 'checkpoints/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    write_file_name = out_dir + 'results/result_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    write_config_file = out_dir + 'configs/config_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    dirs = root_log_dir, root_ckpt_dir, write_file_name, write_config_file
+    # root_log_dir = out_dir + 'logs/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    # root_ckpt_dir = out_dir + 'checkpoints/' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    # write_file_name = out_dir + 'results/result_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    # write_config_file = out_dir + 'configs/config_' + MODEL_NAME + "_" + DATASET_NAME + "_GPU" + str(config['gpu']['id']) + "_" + time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    # dirs = root_log_dir, root_ckpt_dir, write_file_name, write_config_file
 
     if not os.path.exists(out_dir + 'results'):
         os.makedirs(out_dir + 'results')
         
     if not os.path.exists(out_dir + 'configs'):
         os.makedirs(out_dir + 'configs')
+
+    vis_model_name = ('My' if net_params['my_layer'] else '') + MODEL_NAME
+    N = max([int(fn.split('.')[0].split('_')[-1]) for fn in os.listdir(out_dir + 'results/')] + [0]) + 1
+    root_log_dir = out_dir + 'logs/' + DATASET_NAME + "_" + vis_model_name + "_"+ str(N)
+    root_ckpt_dir = out_dir + 'checkpoints/' + DATASET_NAME + "_" + vis_model_name + "_"+ str(N)
+    write_file_name = out_dir + 'results/result_' + DATASET_NAME + "_" + vis_model_name + "_"+ str(N)
+    write_config_file = out_dir + 'configs/config_' + DATASET_NAME + "_" + vis_model_name + "_"+ str(N)
+    dirs = root_log_dir, root_ckpt_dir, write_file_name, write_config_file
 
     net_params['total_param'] = view_model_param(MODEL_NAME, net_params)
     train_val_pipeline(MODEL_NAME, dataset, params, net_params, dirs)

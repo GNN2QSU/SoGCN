@@ -3,9 +3,9 @@ channels:
 - pytorch 
 - dglteam
 - conda-forge
-- fragcolor
+# - fragcolor
 dependencies:
-- cuda10.0
+## - cuda10.0
 - cudatoolkit=10.0
 - cudnn=7.6.5
 - python=3.7.4
